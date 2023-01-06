@@ -32,14 +32,16 @@ int main(int argc,char* argv[])
     attr.size=sizeof(struct perf_event_attr);
     //监测硬件
     attr.type=PERF_TYPE_HARDWARE;
-    //监测指令数
+    //监测cache miss数量
     attr.config=PERF_COUNT_HW_CACHE_MISSES;
     //初始状态为禁用
     attr.disabled=1;
     //每次读取一个组
     attr.read_format=PERF_FORMAT_GROUP;
+    //只监测用户态/内核态事件
     attr.exclude_kernel = 1;
     //创建perf文件描述符，其中pid=0,cpu=-1表示监测当前进程，不论运行在那个cpu上
+    //这里选择用户指定pid，由用户输入
     printf("string argv[1] = %s\n", argv[1]);
     int pid = atoi(argv[1]);
     printf("monitor pid = %d\n", pid);
