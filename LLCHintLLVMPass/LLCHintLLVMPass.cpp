@@ -14,11 +14,13 @@
 #include "llvm/Transforms/IPO/SampleProfile.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 using namespace llvm;
 using namespace sampleprof;
 
 bool AutoFDOMapping;
+int block_count = 0;
 
 static cl::opt<std::string> PrefetchFile("input-file", cl::desc("Specify input filename for mypass"), cl::value_desc("filename"));
 
@@ -904,14 +906,18 @@ bool LLCHintLLVMPass::InjectPrefeches(Instruction* curLoad, LoopInfo& LI, SmallV
 						CallInst* call = CallInst::Create(PrefetchFunc, ar);
 						call->insertAfter(cast);
 
+
 						x = call;
+
+
+
 
 						Loop* curInstrLoop = LI.getLoopFor(cast->getParent()); // 指令所在的基本块所在循环
 						BasicBlock* H = curInstrLoop->getHeader();			   // 循环内部的header
 						BasicBlock *Incoming = nullptr, *Backedge = nullptr;
 						pred_iterator PI = pred_begin(H); // 循环的所有前驱
 
-						errs() << "he number of predecessors of BB is " << pred_size(H) << "\n";
+						errs() << "the number of predecessors of BB is " << pred_size(H) << "\n";
 						assert(PI != pred_end(H) && "Loop must have at least one backedge!"); // 正常的循环必然有两个前驱
 						Backedge = *PI++;
 						if (PI == pred_end(H)) {
@@ -922,12 +928,16 @@ bool LLCHintLLVMPass::InjectPrefeches(Instruction* curLoad, LoopInfo& LI, SmallV
 							return false; // multiple backedges? // 多个前驱
 						}
 						PI = pred_begin(H);
+						// BasicBlock* pred = Incoming;
 						BasicBlock* pred = *PI;
 						SetVector<Instruction*> BBInsts; // 前驱的所有指令
+						SetVector<Instruction*> BBInsts2; // 前驱的所有指令
 						for (Instruction& J : *pred) {
 							Instruction* I = &J;
+              // errs() << *I << "\n";
 							BBInsts.insert(I); // 存储起来
 						}
+            // errs() << "==================================\n";
 						Loop* lastLoop = LI.getLoopFor(pred); // 找到前驱所在的循环 也就是二重循环
 
 						Loop* finalLoop = curInstrLoop;
@@ -954,6 +964,7 @@ bool LLCHintLLVMPass::InjectPrefeches(Instruction* curLoad, LoopInfo& LI, SmallV
 							BasicBlock* pred1 = *PI;
 							for (Instruction& J : *pred1) {
 								Instruction* I = &J;
+                // errs() << *I << "\n";
 								BBInsts.insert(I);
 							}
 						}
@@ -1007,9 +1018,23 @@ bool LLCHintLLVMPass::InjectPrefeches(Instruction* curLoad, LoopInfo& LI, SmallV
 							}
 						}
 
+
 						BasicBlock* currBB = cast->getParent();
 						Module* M = currBB->getModule();
 						LLVMContext& Ctx = M->getContext();
+
+/*
+
+            BasicBlock* probe_block = BasicBlock::Create(Ctx, "probe_block", currBB->getParent(), currBB);
+            IRBuilder<> builder(probe_block);
+            Value* sum = builder.CreateAdd(ConstantInt::get(IntegerType::getInt32Ty(Ctx), 1), ConstantInt::get(IntegerType::getInt32Ty(Ctx), 1));
+            // IRBuilder<> builder1(Ctx);
+            // builder1.SetInsertPoint(probe_block);
+            IRBuilder<> builder2(currBB);
+            builder.CreateBr(currBB);
+
+            // 这单代码有问题，因为还需要修改currBB的phiNode指令，累了
+*/
 
 						// BasicBlock::iterator b = currBB->begin();
 						Module::iterator m = M->begin();
@@ -1020,9 +1045,10 @@ bool LLCHintLLVMPass::InjectPrefeches(Instruction* curLoad, LoopInfo& LI, SmallV
 
 
 						// 构造printf指令，S是输出参数
-						auto S = StringRef("the lineno is %d, the loop count is %d\n");
+						// auto S = StringRef("the lineno is %d, the loop count is %d\n");
+						auto S = StringRef("the distance is %d\n");
 						// auto S = StringRef(Twine(LineNo).str());
-						Value* LineNum = ConstantInt::get(IntegerType::getInt32Ty(Ctx), LineNo); // 变为value类型
+						// Value* LineNum = ConstantInt::get(IntegerType::getInt32Ty(Ctx), LineNo); // 变为value类型
 						auto* CharPointerTy = PointerType::get(IntegerType::getInt8Ty(Ctx), 0);
 						auto* PrintfTy = FunctionType::get(IntegerType::getInt32Ty(Ctx), { CharPointerTy }, true);
 						auto Printf = M->getOrInsertFunction("printf", PrintfTy);
@@ -1050,13 +1076,20 @@ bool LLCHintLLVMPass::InjectPrefeches(Instruction* curLoad, LoopInfo& LI, SmallV
 						auto* Const64Value1 = ConstantInt::get(IntegerType::getInt64Ty(Ctx), 1024);
 						auto* Const32Value2 = ConstantInt::get(IntegerType::getInt32Ty(Ctx), 3);
 						auto* Const64Value2 = ConstantInt::get(IntegerType::getInt64Ty(Ctx), 0);
+						auto* Const64Value3 = ConstantInt::get(IntegerType::getInt64Ty(Ctx), 1);
+						auto* Const64Value4 = ConstantInt::get(IntegerType::getInt64Ty(Ctx), 2);
+						auto* Const64Value5 = ConstantInt::get(IntegerType::getInt64Ty(Ctx), 10);
 						auto* Const32Value3 = ConstantInt::get(IntegerType::getInt32Ty(Ctx), 1);
 						auto* Const32Value4 = ConstantInt::get(IntegerType::getInt32Ty(Ctx), 66);
+						auto* Const32Value5 = ConstantInt::get(IntegerType::getInt32Ty(Ctx), 2);
 						auto* Const8Value = ConstantInt::get(IntegerType::getInt8Ty(Ctx), 97);
 
 						auto openTy = FunctionType::get(Int32Ty, { PointerI8Ty, Int32Ty }, true);
 						auto mmapTy = FunctionType::get(PointerI8Ty, { PointerI8Ty, Int64Ty, Int32Ty, Int32Ty, Int32Ty, Int64Ty }, true);
 						auto closeTy = FunctionType::get(Int32Ty, { Int32Ty }, true);
+            auto lseekTy = FunctionType::get(Int64Ty, { Int32Ty, Int64Ty, Int32Ty}, true);
+            auto atoiTy = FunctionType::get(Int32Ty, { PointerI8Ty  }, true);
+            // auto memcpyTy = FunctionType::get(Type::getVoidTy(Ctx), { PointerI8Ty, PointerI8Ty, Int64Ty, IntegerType::getInt1Ty(Ctx) }, true);
 
 						S = StringRef("myTest.txt");
 						Arr = ConstantDataArray::getString(Ctx, S);
@@ -1065,46 +1098,211 @@ bool LLCHintLLVMPass::InjectPrefeches(Instruction* curLoad, LoopInfo& LI, SmallV
 						auto Open = M->getOrInsertFunction("open", openTy);
 						auto MMap = M->getOrInsertFunction("mmap", mmapTy);
 						auto Close = M->getOrInsertFunction("close", closeTy);
-						CallInst* myopen = CallInst::Create(Open, { ConstantExpr::getBitCast(GV, CharPointerTy), Const32Value4 }, "");
-						// CallInst* mymmap = CallInst::Create(MMap, {PointerI8Value, Const64Value1,Const32Value2, Const32Value3,myopen, Const64Value2}, "");
-						// CallInst* myclose = CallInst::Create(Close, {myopen}, "");
+            auto Lseek = M->getOrInsertFunction("lseek", lseekTy);
+            auto Atoi = M->getOrInsertFunction("atoi", atoiTy);
+            // auto Memcpy = M->getOrInsertFunction("llvm.memcpy.p018.p018.i64", memcpyTy);
 
-						AllocaInst* fd = new AllocaInst(IntegerType::getInt32Ty(Ctx), 0, "myFd");
-						fd->setAlignment(Align(4));
+						CallInst* myopen = CallInst::Create(Open, { ConstantExpr::getBitCast(GV, CharPointerTy), Const32Value4 }, "myopen");
+						CallInst* mymmap = CallInst::Create(MMap, { PointerI8Value, Const64Value1, Const32Value2, Const32Value3, myopen, Const64Value2 }, "mymmap");
+            ArrayType* arrayType = ArrayType::get(IntegerType::getInt8Ty(Ctx), 10);
+            AllocaInst* Alloc_prefetch_distance = new AllocaInst(arrayType, 0,  "prefetch_distance");
+            Alloc_prefetch_distance->setAlignment(Align(1));
 
-						AllocaInst* mmap = new AllocaInst(PointerType::get(IntegerType::getInt8Ty(Ctx), 0), 0, "mmap");
-						mmap->setAlignment(Align(8));
+            Alloc_prefetch_distance->insertBefore(test);
+            myopen->insertBefore(test);
+            mymmap->insertBefore(test);
 
-						// AllocaInst* pa = new AllocaInst(PointerType::get(IntegerType::getInt8Ty(Ctx), 0), 0,"temp1");
-						// pa->setAlignment(Align(8));
 
-						StoreInst* storeFd = new StoreInst(myopen, fd, 0, Align(4));
-						LoadInst* loadFd = new LoadInst(IntegerType::getInt32Ty(Ctx), fd, "loadopenfd", 0, Align(4));
+            GetElementPtrInst* get_prefetch_distance = GetElementPtrInst::Create(arrayType, Alloc_prefetch_distance, {Const64Value2, Const64Value2}, "get_prefetch_distance");
 
+            get_prefetch_distance->insertBefore(test);
+            GetElementPtrInst* get_mmap2 = GetElementPtrInst::Create(IntegerType::getInt8Ty(Ctx), mymmap, Const64Value4, "get_mmap2");
+            get_mmap2->insertBefore(test);
+
+
+            IRBuilder<> Builder1(cast);
+            CallInst *myMemcpy = Builder1.CreateMemCpy(get_prefetch_distance, Align(1), get_mmap2, Align(1), Const64Value5);
+
+            LoadInst* load_prefetch_distance = new LoadInst(IntegerType::getInt8Ty(Ctx), mymmap, "load_prefetch_distance", 0, Align(1));;
+            SExtInst* atoi = new SExtInst(load_prefetch_distance, IntegerType::getInt32Ty(Ctx), "atoi");
+
+            load_prefetch_distance->insertBefore(cast);
+            atoi->insertBefore(cast);
+						
+
+            S = StringRef("the distance is %d\n");
+            Arr = ConstantDataArray::getString(Ctx, S);
+            GV = new GlobalVariable(*M, Arr->getType(), true, GlobalValue::PrivateLinkage, Arr, ".str1");
+
+            // CallInst* myprint = CallInst::Create(Printf, { ConstantExpr::getBitCast(GV, CharPointerTy), atoi}, "");
+            //myprint->insertBefore(call);
+
+/*
+						AllocaInst* AllocFd = new AllocaInst(IntegerType::getInt32Ty(Ctx), 0, "myFd");
+						AllocFd->setAlignment(Align(4));
+						AllocaInst* AllocMmap = new AllocaInst(PointerType::get(IntegerType::getInt8Ty(Ctx), 0), 0, "mmap");
+						AllocMmap->setAlignment(Align(8));
+            AllocaInst *AllocStoreLseek = new AllocaInst(IntegerType::getInt64Ty(Ctx), 0, "storeLseek");
+            AllocStoreLseek->setAlignment(Align(4));
+            ArrayType* arrayType = ArrayType::get(IntegerType::getInt8Ty(Ctx), 1024);
+            AllocaInst* Alloc_prefetch_distance = new AllocaInst(arrayType, 0,  "prefetch_distance");
+            Alloc_prefetch_distance->setAlignment(Align(16));
+            
+						StoreInst* storeFd = new StoreInst(myopen, AllocFd, 0, Align(4));
+						LoadInst* loadFd = new LoadInst(IntegerType::getInt32Ty(Ctx), AllocFd, "loadopenfd", 0, Align(4));
 						CallInst* mymmap = CallInst::Create(MMap, { PointerI8Value, Const64Value1, Const32Value2, Const32Value3, loadFd, Const64Value2 }, "");
-						StoreInst* storemmap = new StoreInst(mymmap, mmap, 0, Align(8));
-						LoadInst* loadCloseFd = new LoadInst(IntegerType::getInt32Ty(Ctx), fd, "loadclosefd", 0, Align(4));
+						StoreInst* storemmap = new StoreInst(mymmap, AllocMmap, 0, Align(8));
+            LoadInst* loadlseekFd = new LoadInst(IntegerType::getInt32Ty(Ctx), AllocFd, "loadlseekfd", 0, Align(4));
+            CallInst* mylseek = CallInst::Create(Lseek, {loadlseekFd, Const64Value2, Const32Value5 }, "");
+            // TruncInst* myTrunc = new TruncInst(mylseek, IntegerType::getInt32Ty(Ctx), "myTrunc");
 
-						CallInst* myclose = CallInst::Create(Close, { loadCloseFd }, "");
 
-						LoadInst* loadmmap = new LoadInst(PointerType::get(IntegerType::getInt8Ty(Ctx), 0), mmap, "loadmmap", 0, Align(8));
+            StoreInst* storelen = new StoreInst(mylseek, AllocStoreLseek, 0, Align(4));
+            
+            LoadInst* load_start1 = new LoadInst(PointerType::get(IntegerType::getInt8Ty(Ctx),0), AllocMmap, "load_start1", 0, Align(8));
+            GetElementPtrInst* get_start1 = GetElementPtrInst::Create(IntegerType::getInt8Ty(Ctx), load_start1, Const64Value3, "get_start1");
+            LoadInst* load_get_prefetch = new LoadInst(IntegerType::getInt8Ty(Ctx), get_start1, "load_get_prefetch" ,0, Align(1));
+            AllocaInst* AllocPrefetch = new AllocaInst(IntegerType::getInt8Ty(Ctx), 0, "alloc_prefetch");
+            AllocPrefetch->setAlignment(Align(1));
+            StoreInst* store_prefetch = new StoreInst(load_get_prefetch, AllocPrefetch, 0, Align(1));
 
-						GetElementPtrInst* getmmap = GetElementPtrInst::Create(IntegerType::getInt8Ty(Ctx), loadmmap, { Const64Value2 }, "mmapStr");
+            GetElementPtrInst* get_prefetch_distance = GetElementPtrInst::Create(arrayType, Alloc_prefetch_distance, {Const64Value2, Const64Value2}, "get_prefetch_distance");
 
-						StoreInst* mywrite = new StoreInst(Const8Value, getmmap, 0, Align(1));
+            LoadInst* load_start = new LoadInst(PointerType::get(IntegerType::getInt8Ty(Ctx), 0), AllocMmap, "load_start", 0, Align(8));
+            GetElementPtrInst* get_start = GetElementPtrInst::Create(IntegerType::getInt8Ty(Ctx), load_start, Const64Value4, "get_start");
+            LoadInst* load_len = new LoadInst(IntegerType::getInt64Ty(Ctx), AllocStoreLseek, "load_len", 0, Align(8));
+            Instruction *sub_len = BinaryOperator::Create(Instruction::Sub, load_len, ConstantInt::get(IntegerType::getInt64Ty(Ctx), 5), "sub_len");
+            // CallInst* myMemcpy = CallInst::Create(Memcpy, {get_prefetch_distance, get_start, sub_len, ConstantInt::get(IntegerType::getInt1Ty(Ctx), 0)}, ""); 
+            CallInst *myMemcpy = (Builder.CreateMemCpy(get_prefetch_distance, Align(16), get_start, Align(1), sub_len));
 
-						mmap->insertBefore(test);
-						fd->insertBefore(test);
+            GetElementPtrInst* get_end = GetElementPtrInst::Create(arrayType, Alloc_prefetch_distance, {Const64Value2, sub_len}, "get_end");
+            StoreInst* store_end = new StoreInst(ConstantInt::get(IntegerType::getInt8Ty(Ctx), 10), get_end, 0, Align(1));
+            GetElementPtrInst* get_distance = GetElementPtrInst::Create(arrayType, Alloc_prefetch_distance, {Const64Value2, Const64Value2}, "get_distance");
+            CallInst* myAtoi = CallInst::Create(Atoi, { get_distance  }, "");
+            AllocaInst* Alloc_distance = new AllocaInst(IntegerType::getInt32Ty(Ctx), 0, "alloc_distance");
+            Alloc_distance->setAlignment(Align(4));
+            StoreInst* store_distance = new StoreInst(myAtoi, Alloc_distance, 0, Align(4));          
+
+
+            LoadInst* load_distance = new LoadInst(IntegerType::getInt32Ty(Ctx), Alloc_distance, "load_distance", 0, Align(4));
+            CmpInst* mycmp = CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_EQ, load_distance, ConstantInt::get(IntegerType::getInt32Ty(Ctx), 0), "my_cmp");
+
+
+            LoadInst* loadCloseFd = new LoadInst(IntegerType::getInt32Ty(Ctx), AllocFd, "loadclosefd", 0, Align(4));
+            CallInst* myclose = CallInst::Create(Close, { loadCloseFd }, "");
+
+            LoadInst* loadmmap = new LoadInst(PointerType::get(IntegerType::getInt8Ty(Ctx), 0), AllocMmap, "loadmmap", 0, Align(8));
+            GetElementPtrInst* getmmap = GetElementPtrInst::Create(IntegerType::getInt8Ty(Ctx), loadmmap, { Const64Value2 }, "mmapStr");
+            StoreInst* mywrite = new StoreInst(Const8Value, getmmap, 0, Align(1));
+
+            store_prefetch->insertBefore(call);
+            store_end->insertBefore(call);
+            get_distance->insertBefore(call);
+            myAtoi->insertBefore(call);
+            store_distance->insertBefore(call);
+            load_distance->insertBefore(call);
+            mycmp->insertBefore(call);
+            mywrite->insertBefore(call);
+
+
+
+            std::string str = "access_block"+Twine(block_count).str();
+            block_count++;
+
+            Instruction* inst = call->getNextNonDebugInstruction();
+            BasicBlock* access_block = currBB->splitBasicBlock(inst, str);
+
+            str = "prefetch_block"+Twine(block_count).str();
+            BasicBlock* prefetch_block = currBB->splitBasicBlock(call, str);
+            BranchInst* myBr = BranchInst::Create(access_block, prefetch_block, mycmp);
+            
+            Instruction* Terminator = currBB->getTerminator();
+            llvm::ReplaceInstWithInst(Terminator, myBr);
+
+
+
+						AllocMmap->insertBefore(test);
+						AllocFd->insertBefore(test);
+            Alloc_prefetch_distance->insertBefore(test);
+            AllocStoreLseek->insertBefore(test);
+            AllocPrefetch->insertBefore(test);
+            Alloc_distance->insertBefore(test);
+
+
+            Alloc_prefetch_distance->insertBefore(test);
 						myopen->insertBefore(test);
+						mymmap->insertBefore(test);
+            get_prefetch_distance->insertBefore(test);
+            get_mmap2->insertBefore(test);
+
+            load_prefetch_distance->insertBefore(cast);
+            atoi->insertBefore(cast);
+
 						storeFd->insertBefore(test);
 						loadFd->insertBefore(test);
 						mymmap->insertBefore(test);
 						storemmap->insertBefore(test);
+            loadlseekFd->insertBefore(test);
+            mylseek->insertBefore(test);
+            storelen->insertBefore(test);
 						loadCloseFd->insertBefore(test);
 						myclose->insertBefore(test);
+
 						loadmmap->insertBefore(test);
 						getmmap->insertBefore(test);
-						mywrite->insertBefore(BBInsts[BBInsts.size() - 1]);
+            
+            load_start1->insertBefore(test);
+            get_start1->insertBefore(test);
+            load_get_prefetch->insertBefore(test);
+
+            get_prefetch_distance->insertBefore(test);
+            
+            load_start->insertBefore(test);
+            get_start->insertBefore(test);
+            load_len->insertBefore(test);
+            sub_len->insertBefore(test);
+            get_end->insertBefore(test);
+
+            // store_prefetch->insertBefore(BBInsts[BBInsts.size() - 1]);
+            // store_prefetch->insertBefore(call);
+            // store_end->insertBefore(call);
+            // get_distance->insertBefore(call);
+            // myAtoi->insertBefore(call);
+            // store_distance->insertBefore(call);
+            // load_distance->insertBefore(call);
+            // mycmp->insertBefore(call);
+						// mywrite->insertBefore(call);
+*/
+
+/*
+
+            AllocaInst* Alloc_distance = new AllocaInst(IntegerType::getInt32Ty(Ctx), 0, "alloc_distance");
+            Alloc_distance->setAlignment(Align(4));
+            Alloc_distance->insertBefore(test);
+
+            LoadInst* load_distance = new LoadInst(IntegerType::getInt32Ty(Ctx), Alloc_distance, "load_distance", 0, Align(4));
+            load_distance->insertBefore(call);
+*/
+            CmpInst* mycmp = CmpInst::Create(Instruction::ICmp, CmpInst::ICMP_EQ, atoi, ConstantInt::get(IntegerType::getInt32Ty(Ctx), 0), "my_cmp");
+            mycmp->insertBefore(call);
+
+            std::string str = "access_block"+Twine(block_count).str();
+
+            Instruction* inst = call->getNextNonDebugInstruction();
+            BasicBlock* access_block = currBB->splitBasicBlock(inst, str);
+
+            str = "prefetch_block"+Twine(block_count).str();
+            BasicBlock* prefetch_block = currBB->splitBasicBlock(call, str);
+            block_count++;
+
+
+            BranchInst* myBr = BranchInst::Create(access_block, prefetch_block, mycmp);
+
+            Instruction* Terminator = currBB->getTerminator();
+            llvm::ReplaceInstWithInst(Terminator, myBr);
+
+
+
 					}
 				}
 			}
@@ -1330,6 +1528,36 @@ bool LLCHintLLVMPass::runOnFunction(Function& F)
 	/*if(!SamplesReaded){
 		errs()<<F.getName() << "   no-sample!\n";
 	}*/
+
+
+/*
+
+   MDNode* MDN;
+   unsigned Line;
+   DILocation* Loc;
+   for (auto &BB : F) {
+       for (auto &I : BB) {
+           errs() << I << "\n"; // Output the instruction
+            MDN = I.getMetadata("dbg");
+            if (MDN) {
+              Loc = dyn_cast<DILocation>(MDN);
+              if (Loc) {
+                Line = Loc->getLine();
+                errs() << "Line is " << Line << "\n";
+              }
+              else {
+                errs() << "no Loc\n";
+              }
+            }
+            else {
+              errs() << "mo metadata\n";
+            }
+       }
+   }
+
+
+*/
+
 	if (samplesExist) {
 		int64_t prefechDist;
 		SmallVector<Instruction*, 30> AllCurLoads;
